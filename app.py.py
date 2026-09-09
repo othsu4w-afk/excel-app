@@ -116,7 +116,7 @@ if uploaded_file is not None:
             ).reset_index()
         else:
             df_region = pd.read_excel(
-                xls, '分析'
+                xls, ' '
             )  # 若 Excel 已算好則直接讀取
 
         st.success('✅ 檔案讀取成功！以下為自動計算結果預覽：')
