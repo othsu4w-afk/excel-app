@@ -54,7 +54,7 @@ def add_df_to_word(doc, df_data, title=''):
 
 
 # ==========================================
-# 2. 新增：三天與五天時效「專業服務」重疊個案統計
+# 2. 三天與五天時效「專業服務」重疊個案統計
 # ==========================================
 def calculate_overlap_stats(df_3days_raw, df_5days_raw):
     """計算三天時效(初評/複評/AA01/跨月計畫追蹤)與五天時效(專業服務)的重疊個案"""
@@ -66,27 +66,24 @@ def calculate_overlap_stats(df_3days_raw, df_5days_raw):
     ):
         return None
 
-    # --- 1. 找尋 ID 與 類別 欄位 ---
+    # 尋找 ID 欄位
     id_col_3 = next(
-        (c for c in df_3days_raw.columns if 'ID' in c.upper() or '身分證' in c or '個案' in c),
+        (c for c in df_3days_raw.columns if 'ID' in str(c).upper() or '身分證' in str(c) or '個案' in str(c)),
         df_3days_raw.columns[0],
     )
     id_col_5 = next(
-        (c for c in df_5days_raw.columns if 'ID' in c.upper() or '身分證' in c or '個案' in c),
+        (c for c in df_5days_raw.columns if 'ID' in str(c).upper() or '身分證' in str(c) or '個案' in str(c)),
         df_5days_raw.columns[0],
     )
 
-    # --- 2. 計算分母：三天時效 (初評、複評、AA01、跨月計畫追蹤) ---
+    # 計算分母：三天時效 (初評、複評、AA01、跨月計畫追蹤)
     target_categories = ['初評', '複評', 'AA01', '跨月計畫追蹤']
-
-    # 找出包含類別/項目的欄位
     type_col_3 = next(
-        (c for c in df_3days_raw.columns if '類別' in c or '項目' in c or '類型' in c),
+        (c for c in df_3days_raw.columns if '類別' in str(c) or '項目' in str(c) or '類型' in str(c)),
         None,
     )
 
     if type_col_3:
-        # 篩選符合條件的列
         df_3_filtered = df_3days_raw[
             df_3days_raw[type_col_3]
             .astype(str)
@@ -94,15 +91,14 @@ def calculate_overlap_stats(df_3days_raw, df_5days_raw):
             .isin(target_categories)
         ]
     else:
-        # 若找不到類別欄則使用全體三天時效個案
         df_3_filtered = df_3days_raw
 
-    denominator_ids = set(df_3_filtered[id_col_3].dropna().unique())
+    denominator_ids = set(df_3_filtered[id_col_3].dropna().astype(str).str.strip().unique())
     denominator_cnt = len(denominator_ids)
 
-    # --- 3. 計算分子：五天時效中有專業服務的個案 ---
+    # 計算分子：五天時效中有專業服務的個案
     item_col_5 = next(
-        (c for c in df_5days_raw.columns if '項目' in c or '類別' in c or '服務' in c),
+        (c for c in df_5days_raw.columns if '項目' in str(c) or '類別' in str(c) or '服務' in str(c)),
         None,
     )
 
@@ -113,27 +109,24 @@ def calculate_overlap_stats(df_3days_raw, df_5days_raw):
     else:
         df_5_c = df_5days_raw
 
-    c_ids = set(df_5_c[id_col_5].dropna().unique())
+    c_ids = set(df_5_c[id_col_5].dropna().astype(str).str.strip().unique())
 
-    # --- 4. 比對重疊個案 ---
+    # 比對重疊個案
     numerator_ids = denominator_ids.intersection(c_ids)
     numerator_cnt = len(numerator_ids)
 
-    # 計算比率
     rate = (
         f'{round((numerator_cnt / denominator_cnt) * 100, 1)}%'
         if denominator_cnt > 0
         else '0%'
     )
 
-    df_overlap_result = pd.DataFrame([{
+    return pd.DataFrame([{
         '統計項目': '三天時效個案中具專業服務之個案比率',
         '分母 (三天時效:初評/複評/AA01/跨月計畫追蹤)': f'{denominator_cnt} 人',
         '分子 (五天時效有專業服務且重疊個案)': f'{numerator_cnt} 人',
         '重疊涵蓋率': rate,
     }])
-
-    return df_overlap_result
 
 
 # ==========================================
@@ -188,7 +181,6 @@ def analyze_diversity_sheet(df_diversity):
             })
         nae_top3_df = pd.DataFrame(nae_list)
 
-    if nae_cols:
         service_counts_per_case = (
             df_diversity[nae_cols]
             .astype(str)
@@ -273,17 +265,14 @@ def build_word_report(
     doc.add_heading('長照 A 單位每月營運與服務品質統計報告', level=1)
     doc.add_paragraph('本報告由 Streamlit 自動化系統根據最新月報 Excel 數據分析生成。')
 
-    # 1. 結案原因統計
     if df_close_summary is not None and not df_close_summary.empty:
         add_df_to_word(doc, df_close_summary, '一、 結案原因統計分析')
 
-    # 2. 三天時效分析
     if df_3days is not None and not df_3days.empty:
         doc.add_heading('二、 3 天服務時效統計', level=2)
         doc.add_paragraph(text_3days)
         add_df_to_word(doc, df_3days)
 
-    # 3. 五天時效分析
     doc.add_heading('三、 5 天服務時效統計 (B碼與C碼分析)', level=2)
     if df_5days_summary is not None and not df_5days_summary.empty:
         doc.add_paragraph('【5天時效分類統計表（居家、日照、家託、專業服務）】')
@@ -293,16 +282,12 @@ def build_word_report(
         doc.add_paragraph('【超過 5 天個案之備註說明統整】')
         add_df_to_word(doc, df_5days_notes)
 
-    # 4. 照會與專業服務交叉時效分析
     doc.add_heading('四、 照會服務與專業服務個案交叉分析', level=2)
     if df_1day_referral is not None and not df_1day_referral.empty:
         doc.add_paragraph('【1 天內照會統計彙整】')
         add_df_to_word(doc, df_1day_referral)
 
-    if (
-        df_2days_referral_notes is not None
-        and not df_2days_referral_notes.empty
-    ):
+    if df_2days_referral_notes is not None and not df_2days_referral_notes.empty:
         doc.add_paragraph('【照會超過 2 天個案之備註說明統整】')
         add_df_to_word(doc, df_2days_referral_notes)
 
@@ -310,7 +295,6 @@ def build_word_report(
         doc.add_paragraph('【三天時效與專業服務重疊個案統計表】')
         add_df_to_word(doc, df_overlap_result)
 
-    # 5. 多元服務項目統計
     doc.add_heading('五、 多元服務項目數量與熱門前 3 名統計', level=2)
     if df_multi_summary is not None and not df_multi_summary.empty:
         doc.add_paragraph('【多元服務項數 (1項/2項...) 與熱門服務前 3 名彙整表】')
@@ -320,11 +304,8 @@ def build_word_report(
         doc.add_paragraph('【N~AE 欄位單項服務前 3 名明細】')
         add_df_to_word(doc, df_nae_top3)
 
-    # 6. 服務區域與個管統計
     if df_region is not None and not df_region.empty:
-        add_df_to_word(
-            doc, df_region, '六、 服務區域與個管師案量交叉統計表'
-        )
+        add_df_to_word(doc, df_region, '六、 服務區域與個管師案量交叉統計表')
 
     bio = io.BytesIO()
     doc.save(bio)
@@ -335,21 +316,16 @@ def build_word_report(
 # ==========================================
 # 5. Streamlit 介面與資料處理
 # ==========================================
-st.set_page_config(
-    page_title='長照 A 單位自動化報表系統', layout='wide'
-)
+st.set_page_config(page_title='長照 A 單位自動化報表系統', layout='wide')
 st.title('📊 長照 A 單位每月報表自動統計與 Word 匯出系統')
 
-uploaded_file = st.file_uploader(
-    '請上傳 Excel 統計檔案 (.xlsx)', type=['xlsx', 'xls']
-)
+uploaded_file = st.file_uploader('請上傳 Excel 統計檔案 (.xlsx)', type=['xlsx', 'xls'])
 
 if uploaded_file is not None:
     try:
         xls = pd.ExcelFile(uploaded_file)
         sheet_names = xls.sheet_names
 
-        # 宣告變數
         df_close_summary = None
         df_3days = None
         df_3days_raw = None
@@ -364,38 +340,35 @@ if uploaded_file is not None:
         df_nae_top3 = None
         df_region = None
 
-        # 1. 結案原因統計
+        # 1. 結案原因統計 (針對新舊版 Pandas 計算相容修正)
         if '結案' in sheet_names:
             df_close = pd.read_excel(xls, '結案')
-            reason_cols = [
-                c
-                for c in df_close.columns
-                if '原因' in c or '類別' in c or '狀態' in c
-            ]
+            reason_cols = [c for c in df_close.columns if '原因' in str(c) or '類別' in str(c) or '狀態' in str(c)]
             if reason_cols:
                 r_col = reason_cols[0]
-                df_close_summary = (
-                    df_close[r_col]
-                    .value_counts()
-                    .reset_index()
-                    .rename(columns={'index': r_col, r_col: '結案人數'})
-                )
+                vc = df_close[r_col].dropna().value_counts()
+                df_close_summary = pd.DataFrame({
+                    r_col: vc.index,
+                    '結案人數': vc.values
+                })
+                total_close = df_close_summary['結案人數'].sum()
                 df_close_summary['比例'] = (
-                    (
-                        df_close_summary['結案人數']
-                        / df_close_summary['結案人數'].sum()
-                        * 100
-                    )
-                    .round(1)
-                    .astype(str)
-                    + '%'
+                    (df_close_summary['結案人數'] / total_close * 100).round(1).astype(str) + '%'
+                    if total_close > 0 else '0%'
                 )
 
         # 2. 三天時效
         if '三天時效' in sheet_names:
             df_3days_raw = pd.read_excel(xls, '三天時效')
-            num_cols = df_3days_raw.select_dtypes(include=['number']).columns
-            if len(num_cols) > 0:
+            # 安全轉換數字欄位
+            num_cols = []
+            for c in df_3days_raw.columns:
+                converted = pd.to_numeric(df_3days_raw[c], errors='coerce')
+                if converted.notna().sum() > 0 and ('天' in str(c) or '耗時' in str(c) or '日' in str(c)):
+                    df_3days_raw[c] = converted
+                    num_cols.append(c)
+
+            if num_cols:
                 day_col = num_cols[0]
                 avg_3 = round(df_3days_raw[day_col].mean(), 2)
                 cnt_3 = df_3days_raw[day_col].count()
@@ -404,68 +377,32 @@ if uploaded_file is not None:
                 summary_row = {c: '' for c in df_3days_raw.columns}
                 summary_row[df_3days_raw.columns[0]] = '平均值 / 總計'
                 summary_row[day_col] = f'平均 {avg_3} 天 (共 {cnt_3} 案)'
-                df_3days = pd.concat(
-                    [df_3days_raw, pd.DataFrame([summary_row])],
-                    ignore_index=True,
-                )
+                df_3days = pd.concat([df_3days_raw, pd.DataFrame([summary_row])], ignore_index=True)
 
         # 3. 五天時效與照會
         if '五天時效' in sheet_names:
             df_5days_raw = pd.read_excel(xls, '五天時效')
 
-            item_col = next(
-                (
-                    c
-                    for c in df_5days_raw.columns
-                    if '項目' in c or '類別' in c
-                ),
-                None,
-            )
-            days_col = next(
-                (
-                    c
-                    for c in df_5days_raw.columns
-                    if '天數' in c or '耗時' in c or '五天' in c
-                ),
-                None,
-            )
-            ref_col = next(
-                (
-                    c
-                    for c in df_5days_raw.columns
-                    if '照會' in c or '派案天' in c
-                ),
-                None,
-            )
-            note_col = next(
-                (
-                    c
-                    for c in df_5days_raw.columns
-                    if '備註' in c or '原因' in c
-                ),
-                None,
-            )
+            item_col = next((c for c in df_5days_raw.columns if '項目' in str(c) or '類別' in str(c)), None)
+            days_col = next((c for c in df_5days_raw.columns if '天數' in str(c) or '耗時' in str(c) or '五天' in str(c)), None)
+            ref_col = next((c for c in df_5days_raw.columns if '照會' in str(c) or '派案天' in str(c)), None)
+            note_col = next((c for c in df_5days_raw.columns if '備註' in str(c) or '原因' in str(c)), None)
 
-            if not days_col:
-                num_cols = df_5days_raw.select_dtypes(
-                    include=['number']
-                ).columns
-                if len(num_cols) > 0:
-                    days_col = num_cols[0]
+            # 強制轉換天數為數值
+            if days_col:
+                df_5days_raw[days_col] = pd.to_numeric(df_5days_raw[days_col], errors='coerce')
+            if ref_col:
+                df_5days_raw[ref_col] = pd.to_numeric(df_5days_raw[ref_col], errors='coerce')
 
-            # B碼 vs C碼
             b_items = ['居家照顧', '日間照顧', '家庭托顧']
             c_items = ['專業服務']
 
             if item_col and days_col:
-                df_b = df_5days_raw[df_5days_raw[item_col].isin(b_items)]
-                df_c = df_5days_raw[df_5days_raw[item_col].isin(c_items)]
+                df_b = df_5days_raw[df_5days_raw[item_col].astype(str).isin(b_items)]
+                df_c = df_5days_raw[df_5days_raw[item_col].astype(str).str.contains('專業服務')]
 
                 stats_data = []
-                for code_name, sub_df in [
-                    ('B碼 (居家/日照/家託)', df_b),
-                    ('C碼 (專業服務)', df_c),
-                ]:
+                for code_name, sub_df in [('B碼 (居家/日照/家託)', df_b), ('C碼 (專業服務)', df_c)]:
                     if not sub_df.empty:
                         total_cnt = len(sub_df)
                         avg_d = round(sub_df[days_col].mean(), 2)
@@ -473,26 +410,18 @@ if uploaded_file is not None:
                         stats_data.append({
                             '類別代碼': code_name,
                             '總案數': total_cnt,
-                            '平均耗時(天)': avg_d,
+                            '平均耗時(天)': avg_d if pd.notna(avg_d) else 0,
                             '超過5天案數': over_5,
                             '符合5天率': f'{round((total_cnt - over_5) / total_cnt * 100, 1)}%',
                         })
                 df_5days_summary = pd.DataFrame(stats_data)
 
-            # 超過 5 天備註
             if days_col and note_col:
                 df_over_5 = df_5days_raw[df_5days_raw[days_col] > 5]
                 if not df_over_5.empty:
-                    cols_to_show = [
-                        c
-                        for c in [item_col, days_col, note_col]
-                        if c is not None
-                    ]
-                    df_5days_notes = df_over_5[cols_to_show].dropna(
-                        subset=[note_col]
-                    )
+                    cols_to_show = [c for c in [item_col, days_col, note_col] if c is not None]
+                    df_5days_notes = df_over_5[cols_to_show].dropna(subset=[note_col])
 
-            # 1 天內照會 & 超過 2 天備註
             if ref_col:
                 total_cases = len(df_5days_raw)
                 within_1day = len(df_5days_raw[df_5days_raw[ref_col] <= 1])
@@ -501,36 +430,22 @@ if uploaded_file is not None:
                 df_1day_referral = pd.DataFrame([{
                     '總個案數': total_cases,
                     '1天內完成照會數': within_1day,
-                    '1天內照會達成率': (
-                        f'{round(within_1day / total_cases * 100, 1)}%'
-                        if total_cases > 0
-                        else '0%'
-                    ),
+                    '1天內照會達成率': f'{round(within_1day / total_cases * 100, 1)}%' if total_cases > 0 else '0%',
                     '超過2天照會數': len(over_2days),
                 }])
 
                 if note_col and not over_2days.empty:
-                    cols_ref = [
-                        c
-                        for c in [item_col, ref_col, note_col]
-                        if c is not None
-                    ]
-                    df_2days_referral_notes = over_2days[cols_ref].dropna(
-                        subset=[note_col]
-                    )
+                    cols_ref = [c for c in [item_col, ref_col, note_col] if c is not None]
+                    df_2days_referral_notes = over_2days[cols_ref].dropna(subset=[note_col])
 
-        # 4. 新增：計算三天與五天「專業服務」重疊個案比率
+        # 4. 計算三天與五天「專業服務」重疊個案比率
         if df_3days_raw is not None and df_5days_raw is not None:
-            df_overlap_result = calculate_overlap_stats(
-                df_3days_raw, df_5days_raw
-            )
+            df_overlap_result = calculate_overlap_stats(df_3days_raw, df_5days_raw)
 
         # 5. 多元總表進階分析
         if '多元總表' in sheet_names:
             df_diversity = pd.read_excel(xls, '多元總表')
-            df_multi_summary, df_nae_top3 = analyze_diversity_sheet(
-                df_diversity
-            )
+            df_multi_summary, df_nae_top3 = analyze_diversity_sheet(df_diversity)
 
             if {'居住地', 'A個管'}.issubset(df_diversity.columns):
                 df_region = pd.crosstab(
@@ -542,7 +457,6 @@ if uploaded_file is not None:
 
         st.success('✅ Excel 資料統計分析與篩選完成！')
 
-        # 分頁預覽結果
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             '結案原因統計',
             '三天時效',
@@ -552,7 +466,7 @@ if uploaded_file is not None:
         ])
 
         with tab1:
-            st.subheader('結案原因統計表（無明細）')
+            st.subheader('結案原因統計表')
             if df_close_summary is not None:
                 st.dataframe(df_close_summary, use_container_width=True)
 
@@ -575,15 +489,10 @@ if uploaded_file is not None:
                 st.subheader('照會 1 天達成率與超過 2 天備註')
                 st.dataframe(df_1day_referral, use_container_width=True)
                 if df_2days_referral_notes is not None:
-                    st.dataframe(
-                        df_2days_referral_notes, use_container_width=True
-                    )
+                    st.dataframe(df_2days_referral_notes, use_container_width=True)
 
-            # 新增顯示重疊統計
             if df_overlap_result is not None:
-                st.subheader(
-                    '🔗 三天時效(初評/複評/AA01/跨月) 與 五天時效(專業服務) 重疊涵蓋率'
-                )
+                st.subheader('🔗 三天時效 與 五天時效(專業服務) 重疊涵蓋率')
                 st.dataframe(df_overlap_result, use_container_width=True)
 
         with tab4:
@@ -602,7 +511,6 @@ if uploaded_file is not None:
 
         st.markdown('---')
 
-        # 生成與下載 Word 檔案
         word_bytes = build_word_report(
             df_3days,
             text_3days,
