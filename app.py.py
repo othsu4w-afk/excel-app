@@ -4,10 +4,24 @@ import pandas as pd
 import streamlit as st
 
 # ==========================================
-# 1. 輔助函式：將 DataFrame 寫入 Word
+# 1. 輔助函式：清理資料型態 (防止 Streamlit 渲染崩潰)
+# ==========================================
+def sanitize_dataframe_for_streamlit(df):
+    """將容易出錯的欄位或所有 object 欄位轉為純字串，避免 PyArrow 報錯"""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    
+    df_clean = df.copy()
+    for col in df_clean.columns:
+        if df_clean[col].dtype == 'object':
+            df_clean[col] = df_clean[col].astype(str).replace('nan', '')
+    return df_clean
+
+# ==========================================
+# 2. 輔助函式：將 DataFrame 寫入 Word
 # ==========================================
 def add_df_to_word(doc, df_data, title=""):
-    if df_data is None or (isinstance(df_data, pd.DataFrame) and df_data.empty):
+    if df_data is None or not isinstance(df_data, pd.DataFrame) or df_data.empty:
         return
 
     if title:
@@ -16,12 +30,12 @@ def add_df_to_word(doc, df_data, title=""):
     table = doc.add_table(rows=1, cols=len(df_data.columns))
     table.style = 'Table Grid'
 
-    # 表頭
+    # 設定表頭
     hdr_cells = table.rows[0].cells
     for i, col_name in enumerate(df_data.columns):
         hdr_cells[i].text = str(col_name)
 
-    # 內容
+    # 填入內容
     for _, row in df_data.iterrows():
         row_cells = table.add_row().cells
         for i, val in enumerate(row):
@@ -29,9 +43,8 @@ def add_df_to_word(doc, df_data, title=""):
 
     doc.add_paragraph()
 
-
 # ==========================================
-# 2. 輔助函式：產生 Word 報告 (必須放在最上方)
+# 3. 輔助函式：產生 Word 報告
 # ==========================================
 def build_word_report(df_dispatch, df_efficiency, df_diversity, df_region):
     doc = docx.Document()
@@ -46,25 +59,45 @@ def build_word_report(df_dispatch, df_efficiency, df_diversity, df_region):
     doc.save(bio)
     return bio.getvalue()
 
-
 # ==========================================
-# 3. Streamlit 主畫面與檔案處理
+# 4. Streamlit 主程式
 # ==========================================
 st.title("Excel 自動化報表產製系統")
 
 uploaded_file = st.file_uploader("請上傳 Excel 檔案", type=["xlsx", "xls"])
 
 if uploaded_file:
-    # 讀取 Excel 檔案邏輯...
-    # 請在此處執行您的資料處理，並產出對應的 df_dispatch, df_efficiency, df_diversity, df_region
-    
-    # 範例預設（若處理失敗預設為 None）
+    # 這裡放您的 Excel 計算邏輯（範例變數名稱如下）
+    # df_dispatch = process_dispatch_sheet(...)
+    # df_efficiency = process_efficiency_sheet(...)
+    # df_diversity, df_region = process_new_cases_sheet(...)
+
+    # 取得變數（若未定義則預設為 None）
     df_dispatch = locals().get('df_dispatch', None)
     df_efficiency = locals().get('df_efficiency', None)
     df_diversity = locals().get('df_diversity', None)
     df_region = locals().get('df_region', None)
 
-    # --- 下載 Word 按鈕 ---
+    # --- 網頁線上預覽區塊 ---
+    st.markdown("## 📊 統計結果預覽")
+
+    if df_dispatch is not None:
+        st.subheader("一、 派案統計")
+        st.dataframe(sanitize_dataframe_for_streamlit(df_dispatch), width='stretch')
+
+    if df_efficiency is not None:
+        st.subheader("二、 服務時效追蹤")
+        st.dataframe(sanitize_dataframe_for_streamlit(df_efficiency), width='stretch')
+
+    if df_diversity is not None:
+        st.subheader("三、 多元服務數量追蹤")
+        st.dataframe(sanitize_dataframe_for_streamlit(df_diversity), width='stretch')
+
+    if df_region is not None:
+        st.subheader("四、 服務區域與個管師案量統計")
+        st.dataframe(sanitize_dataframe_for_streamlit(df_region), width='stretch')
+
+    # --- 下載 Word 按鈕區塊 ---
     st.markdown('---')
     try:
         word_bytes = build_word_report(
