@@ -1,107 +1,101 @@
+import io
+import docx
+from docx.shared import Pt, RGBColor
+import pandas as pd
+import streamlit as st
+
 # ==========================================
-# 6. 新案統計：來源統計 & 區域個管交叉統計
+# 輔助函式：將 DataFrame 安全寫入 Word
 # ==========================================
-def process_new_cases_sheet(df_diversity):
-    """
-    計算新案：
-    1. 來源依照類別 (圖一之 8 種類別) 統計案數與比例
-    2. 新案總案數依「區域與個管」交叉統計 (圖二)，最下排總計由左至右從大到小排列
-    """
-    if df_diversity is None or df_diversity.empty:
-        return None, None
+def add_df_to_word(doc, df_data, title=""):
+    # 防護：如果資料為 None 或 Empty 則不處理
+    if df_data is None or df_data.empty:
+        return
 
-    df_diversity.columns = [str(c).strip() for c in df_diversity.columns]
+    if title:
+        doc.add_heading(title, level=2)
 
-    # 尋找類別/來源、區域、個管欄位
-    type_col = next(
-        (c for c in df_diversity.columns if any(k in c for k in ['類別', '來源', '項目', '類型'])),
-        None,
-    )
-    region_col = next(
-        (c for c in df_diversity.columns if any(k in c for k in ['居住', '區域', '鄉鎮', '縣市', '地址'])),
-        None,
-    )
-    manager_col = next(
-        (c for c in df_diversity.columns if any(k in c for k in ['個管', 'A個管', '專員', '主管'])),
-        None,
-    )
+    table = doc.add_table(rows=1, cols=len(df_data.columns))
+    table.style = 'Table Grid'
 
-    if not type_col:
-        return None, None
+    # 設定表頭
+    hdr_cells = table.rows[0].cells
+    for i, col_name in enumerate(df_data.columns):
+        hdr_cells[i].text = str(col_name)
 
-    # 目標關鍵字（統一不寫換行，靠後續邏輯去除空格與換行進行比對）
-    new_case_categories = [
-        '新-A開發',
-        '新-B開發',
-        '新-照管中心',
-        '新-舊案下放',
-        '非複評舊案-照管中心(無時效)',
-        '非複評舊案-A轉A(無時效)',
-        '出服',
-        '純輔具(無時效)',
-    ]
+    # 填充內容
+    for _, row in df_data.iterrows():
+        row_cells = table.add_row().cells
+        for i, val in enumerate(row):
+            row_cells[i].text = "" if pd.isna(val) else str(val)
 
-    # 將 Excel 內的文字「去除所有換行 (\n, \r) 及空白」
-    df_diversity['_clean_type'] = (
-        df_diversity[type_col]
-        .astype(str)
-        .str.replace('\n', '', regex=False)
-        .str.replace('\r', '', regex=False)
-        .str.replace(' ', '', regex=False)
-        .str.strip()
-    )
+    doc.add_paragraph()  # 空行分隔
 
-    # 判斷是否符合新案來源
-    def is_new_case(val):
-        for target in new_case_categories:
-            target_clean = target.replace(' ', '')
-            if target_clean in val or val in target_clean:
-                return True
-        return False
 
-    df_new = df_diversity[df_diversity['_clean_type'].apply(is_new_case)].copy()
+# ==========================================
+# 輔助函式：產生 Word 報告
+# ==========================================
+def build_word_report(df_dispatch, df_efficiency, df_diversity, df_region):
+    doc = docx.Document()
+    doc.add_heading('服務統計分析報告', level=1)
 
-    if df_new.empty:
-        return None, None
+    # 只寫入非 None 且非空的表格
+    add_df_to_word(doc, df_dispatch, '一、 派案統計')
+    add_df_to_word(doc, df_efficiency, '二、 服務時效追蹤（含 3 天及 5 天時效）')
+    add_df_to_word(doc, df_diversity, '三、 多元服務數量追蹤')
+    add_df_to_word(doc, df_region, '四、 服務區域與個管師案量統計')
 
-    # --- 1. 新案來源類別統計 (圖一) ---
-    # 統計時還原為原始類別名稱（保留包含換行的欄位顯示）或統一乾淨顯示
-    source_counts = df_new[type_col].astype(str).str.strip().value_counts().reset_index()
-    source_counts.columns = ['新案來源類別', '案數']
+    bio = io.BytesIO()
+    doc.save(bio)
+    return bio.getvalue()
 
-    total_new = len(df_new)
-    source_counts['比例'] = (
-        (source_counts['案數'] / total_new * 100).round(1).astype(str) + '%'
-        if total_new > 0 else '0%'
-    )
 
-    # 加上總計列
-    total_row_df = pd.DataFrame([{
-        '新案來源類別': '總計',
-        '案數': total_new,
-        '比例': '100.0%'
-    }])
-    df_new_source_summary = pd.concat([source_counts, total_row_df], ignore_index=True)
+# ==========================================
+# 輔助函式：修復 PyArrow 轉型問題
+# ==========================================
+def sanitize_dataframe_for_streamlit(df):
+    """將容易出錯的欄位或所有 object 欄位轉為字串，防止 PyArrow 崩潰"""
+    if df is None or df.empty:
+        return df
+    
+    df_clean = df.copy()
+    for col in df_clean.columns:
+        # 將 object 欄位及含有換行/混合型態的欄位強制轉為字串
+        if df_clean[col].dtype == 'object':
+            df_clean[col] = df_clean[col].astype(str).replace('nan', '')
+    return df_clean
 
-    # --- 2. 新案依區域與個管統計 (圖二，總計由大到小排序) ---
-    df_new_region_manager = None
-    if region_col and manager_col:
-        ct = pd.crosstab(
-            df_new[region_col],
-            df_new[manager_col],
-            margins=True,
-            margins_name='總計',
+
+# ==========================================
+# 主程式邏輯 (範例結構)
+# ==========================================
+st.title("Excel 自動化報表產製系統")
+
+uploaded_file = st.file_uploader("請上傳 Excel 檔案", type=["xlsx", "xls"])
+
+if uploaded_file:
+    # 讀取 Excel (請根據您原有的讀取邏輯呈現)
+    # ... 您的資料處理邏輯 ...
+    
+    # 假設計算完畢後的 DataFrames 如下：
+    # df_dispatch, df_efficiency, df_diversity, df_region
+    
+    # 【範例展示】渲染至 Streamlit 前先清理資料型態
+    # st.dataframe(sanitize_dataframe_for_streamlit(df_dispatch))
+
+    # --- 下載 Word 按鈕（加強防護機制） ---
+    st.markdown('---')
+    
+    try:
+        word_bytes = build_word_report(
+            df_dispatch, df_efficiency, df_diversity, df_region
         )
-
-        total_row = ct.loc['總計']
-        manager_cols = [c for c in ct.columns if c != '總計']
-
-        # 由大到小排序個管欄位
-        sorted_managers = total_row[manager_cols].sort_values(ascending=False).index.tolist()
-        final_cols = sorted_managers + ['總計']
-
-        ct_sorted = ct[final_cols].reset_index()
-        ct_sorted.rename(columns={region_col: '列標籤'}, inplace=True)
-        df_new_region_manager = ct_sorted
-
-    return df_new_source_summary, df_new_region_manager
+        
+        st.download_button(
+            label="📝 下載 Word 統計報告",
+            data=word_bytes,
+            file_name="服務統計分析報告.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+    except Exception as e:
+        st.error(f"報告生成時發生錯誤：{str(e)}")
