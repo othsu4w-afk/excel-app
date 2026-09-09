@@ -187,7 +187,7 @@ def process_new_cases(df_3days_raw, df_diversity):
         '純輔具(無時效)',
     ]
 
-    # 優先從三天時效工作表讀取，若無則從多元總表讀取
+    # 優先從三天時效抓，如果沒有則從多元總表抓
     df_source = None
     if df_3days_raw is not None and not df_3days_raw.empty:
         df_source = df_3days_raw.copy()
@@ -197,20 +197,53 @@ def process_new_cases(df_3days_raw, df_diversity):
     if df_source is None or df_source.empty:
         return None, None
 
-    # 自動識別類別欄位
-    type_col = next(
-        (c for c in df_source.columns if any(k in str(c) for k in ['類別', '項目', '來源', '類型', '新案'])),
-        df_source.columns[0],
-    )
+    # 【強效修正】印出所有欄位讓您在終端機確認，並嘗試尋找包含「類別」、「來源」、「項目」、「別」的欄位
+    print("目前 Excel 的所有欄位：", list(df_source.columns))
+    
+    type_col = None
+    for c in df_source.columns:
+        c_str = str(c)
+        if any(k in c_str for k in ['類別', '來源', '項目', '類型', '新案', '執行', '項目']):
+            type_col = c
+            break
+            
+    # 如果還是找不到，直接預設用第 2 個欄位或第 1 個欄位（通常類別會在前面幾欄）
+    if not type_col:
+        type_col = df_source.columns[1] if len(df_source.columns) > 1 else df_source.columns[0]
 
-    # 進行清理與模糊分類
+    print(f"-> 系統自動鎖定的新案類別欄位是：【{type_col}】")
+
+    # 對資料進行清理與超寬鬆模糊歸類
     df_source['_clean_val'] = df_source[type_col].apply(clean_text_advanced)
-    df_source['_mapped_category'] = df_source['_clean_val'].apply(map_to_new_case_category)
+    
+    # 建立一個超強對應函式
+    def super_map(val):
+        if not val:
+            return None
+        if 'A開發' in val or '新-A' in val:
+            return '新-A開發'
+        elif 'B開發' in val or '新-B' in val:
+            return '新-B開發'
+        elif '舊案下放' in val or '下放' in val:
+            return '新-舊案下放'
+        elif '非複評' in val and '舊案-照管' in val:
+            return '非複評舊案-照管中心(無時效)'
+        elif '新-照管' in val:
+            return '新-照管中心'
+        elif 'A轉A' in val or '舊案-A' in val:
+            return '非複評舊案-A轉A(無時效)'
+        elif '輔具' in val:
+            return '純輔具(無時效)'
+        elif '出服' in val or '出備' in val:
+            return '出服'
+        return None
 
-    # 篩選出符合 8 類新案的資料
+    df_source['_mapped_category'] = df_source['_clean_val'].apply(super_map)
+
+    # 【除錯用】如果抓出來全都是空，把前幾筆清理後的值印出來給您看
     df_new_filtered = df_source[df_source['_mapped_category'].notna()].copy()
-
     if df_new_filtered.empty:
+        print("警告：清理後對應不到任何項目。前 5 筆清理後的值為：", df_source['_clean_val'].head(5).tolist())
         return None, None
 
     # 彙整 圖 1 新案來源統計
