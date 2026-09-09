@@ -29,7 +29,7 @@ def process_new_cases_sheet(df_diversity):
     if not type_col:
         return None, None
 
-    # 圖一指定的新案類別列表 (已修正字串換行錯誤)
+    # 目標關鍵字（統一不寫換行，靠後續邏輯去除空格與換行進行比對）
     new_case_categories = [
         '新-A開發',
         '新-B開發',
@@ -41,15 +41,21 @@ def process_new_cases_sheet(df_diversity):
         '純輔具(無時效)',
     ]
 
-    # 進行清理比對
-    df_diversity['_clean_type'] = df_diversity[type_col].astype(str).str.strip()
+    # 將 Excel 內的文字「去除所有換行 (\n, \r) 及空白」
+    df_diversity['_clean_type'] = (
+        df_diversity[type_col]
+        .astype(str)
+        .str.replace('\n', '', regex=False)
+        .str.replace('\r', '', regex=False)
+        .str.replace(' ', '', regex=False)
+        .str.strip()
+    )
 
-    # 模糊/精確比對標記是否為新案
+    # 判斷是否符合新案來源
     def is_new_case(val):
-        val_clean = str(val).replace(' ', '').replace('\n', '').replace('\r', '')
         for target in new_case_categories:
-            target_clean = target.replace(' ', '').replace('\n', '').replace('\r', '')
-            if target_clean in val_clean or val_clean in target_clean:
+            target_clean = target.replace(' ', '')
+            if target_clean in val or val in target_clean:
                 return True
         return False
 
@@ -59,7 +65,8 @@ def process_new_cases_sheet(df_diversity):
         return None, None
 
     # --- 1. 新案來源類別統計 (圖一) ---
-    source_counts = df_new['_clean_type'].value_counts().reset_index()
+    # 統計時還原為原始類別名稱（保留包含換行的欄位顯示）或統一乾淨顯示
+    source_counts = df_new[type_col].astype(str).str.strip().value_counts().reset_index()
     source_counts.columns = ['新案來源類別', '案數']
 
     total_new = len(df_new)
@@ -89,7 +96,7 @@ def process_new_cases_sheet(df_diversity):
         total_row = ct.loc['總計']
         manager_cols = [c for c in ct.columns if c != '總計']
 
-        # 由大到小排序
+        # 由大到小排序個管欄位
         sorted_managers = total_row[manager_cols].sort_values(ascending=False).index.tolist()
         final_cols = sorted_managers + ['總計']
 
