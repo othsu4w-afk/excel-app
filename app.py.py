@@ -7,8 +7,11 @@ import pandas as pd
 import streamlit as st
 
 
-# --- 1. Word 表格繪製輔助函式 ---
+# ==========================================
+# 1. Word 表格排版輔助函式
+# ==========================================
 def set_cell_background(cell, fill_hex):
+    """設定 Word 表格儲存格背景顏色"""
     tcPr = cell._element.get_or_add_tcPr()
     shd = OxmlElement('w:shd')
     shd.set(qn('w:val'), 'clear')
@@ -18,23 +21,27 @@ def set_cell_background(cell, fill_hex):
 
 
 def add_df_to_word(doc, df_data, title=''):
+    """將 Pandas DataFrame 轉繪為 Word 格式化表格"""
+    if df_data is None or df_data.empty:
+        return
+
     if title:
         doc.add_heading(title, level=2)
 
     table = doc.add_table(rows=1, cols=len(df_data.columns))
     table.style = 'Table Grid'
 
-    # 設定表頭
+    # 設定表頭 (灰底 + 粗體)
     hdr_cells = table.rows[0].cells
     for i, col_name in enumerate(df_data.columns):
         hdr_cells[i].text = str(col_name)
-        set_cell_background(hdr_cells[i], 'EFEFEF')  # 淺灰背景
+        set_cell_background(hdr_cells[i], 'EFEFEF')
         for p in hdr_cells[i].paragraphs:
             for run in p.runs:
                 run.font.bold = True
                 run.font.size = Pt(10)
 
-    # 填入內容列
+    # 填入表格資料列
     for _, row in df_data.iterrows():
         row_cells = table.add_row().cells
         for i, val in enumerate(row):
@@ -43,83 +50,98 @@ def add_df_to_word(doc, df_data, title=''):
                 for run in p.runs:
                     run.font.size = Pt(9.5)
 
-    doc.add_paragraph()  # 加上空行
+    doc.add_paragraph()  # 段落空行
 
 
-# --- 2. 動態生成 Word 報告邏輯 ---
-def build_word_report(df_dispatch, df_efficiency, df_diversity, df_region):
+# ==========================================
+# 2. 生成 Word 報告主 logic
+# ==========================================
+def build_word_report(df_3days, df_5days, df_close, df_diversity, df_region):
     doc = docx.Document()
 
+    # 報告主標題
     doc.add_heading('長照 A 單位每月營運與服務品質統計報告', level=1)
-    doc.add_paragraph('本報告由 Streamlit 系統自動讀取當月資料並演算生成。')
+    doc.add_paragraph('本報告由 Streamlit 自動化系統讀取最新 Excel 數據匯出。')
 
-    # 加入四個主要動態表格
-    add_df_to_word(doc, df_dispatch, '一、 每月 A 派案與結案分析')
-    add_df_to_word(
-        doc,
-        df_efficiency,
-        '二、 服務時效追蹤（含 3 天及 5 天時效）',
-    )
-    add_df_to_word(doc, df_diversity, '三、 多元服務數量追蹤')
-    add_df_to_word(doc, df_region, '四、 服務區域與個管師案量統計')
+    # 1. 結案數與派案統計
+    if df_close is not None and not df_close.empty:
+        add_df_to_word(doc, df_close, '一、 結案與派案統計')
 
+    # 2. 服務時效追蹤 (3 天與 5 天)
+    if df_3days is not None and not df_3days.empty:
+        add_df_to_word(doc, df_3days, '二、 3 天服務時效統計')
+
+    if df_5days is not None and not df_5days.empty:
+        add_df_to_word(doc, df_5days, '三、 5 天服務時效統計')
+
+    # 3. 多元服務數量
+    if df_diversity is not None and not df_diversity.empty:
+        add_df_to_word(doc, df_diversity, '四、 多元服務數量統計')
+
+    # 4. 服務區域與個管師統計
+    if df_region is not None and not df_region.empty:
+        add_df_to_word(doc, df_region, '五、 服務區域與個管師案量統計')
+
+    # 將 Word 檔案寫入記憶體 Buffer
     bio = io.BytesIO()
     doc.save(bio)
     bio.seek(0)
     return bio
 
 
-# --- 3. Streamlit 介面與資料自動運算 ---
+# ==========================================
+# 3. Streamlit 畫面配置與資料處理
+# ==========================================
 st.set_page_config(
     page_title='長照 A 單位自動化報表系統', layout='wide'
 )
 st.title('📊 長照 A 單位每月報表自動統計與 Word 匯出系統')
 
 st.markdown("""
-請上傳您毎個月的**原始資料 Excel 檔**，系統會自動計算：
-1. **結案數與派案量**
-2. **3 天與 5 天服務時效平均**
-3. **多元服務項目數量**
-4. **服務區域與個管師統計表**
+請上傳您的月統計 Excel 檔，系統會自動對接工作表：
+* **`結案`** ➔ 結案數與派案分析
+* **`三天時效` / `五天時效`** ➔ 服務時效追蹤
+* **`多元總表`** ➔ 多元服務數量統計
+* **`總表`** ➔ 自動計算「居住地」與「A個管」區域交叉表
 """)
 
-# 檔案上傳器
+# 檔案上傳元件
 uploaded_file = st.file_uploader(
-    '請選擇 monthly_data.xlsx 檔案上傳', type=['xlsx', 'xls']
+    '請上傳 Excel 統計檔案 (.xlsx)', type=['xlsx', 'xls']
 )
 
 if uploaded_file is not None:
     try:
         xls = pd.ExcelFile(uploaded_file)
-        sheet_names = xls.sheet_names  # 取得所有工作表名稱
+        sheet_names = xls.sheet_names
 
-        # --- 1. 預先宣告變數 (防止 NameError) ---
-        df_dispatch = pd.DataFrame()
-        df_efficiency = pd.DataFrame()
-        df_diversity = pd.DataFrame()
+        # 預先宣告變數 (防止 NameError)
+        df_3days = None
+        df_5days = None
+        df_close = None
+        df_diversity = None
         df_region = None
 
-        # --- 2. 讀取「結案 / 派案」資料 ---
-        if '結案' in sheet_names:
-            df_dispatch = pd.read_excel(xls, '結案')
-        elif '派案統計' in sheet_names:
-            df_dispatch = pd.read_excel(xls, '派案統計')
-
-        # --- 3. 讀取「服務時效」資料 ---
+        # 1. 讀取「三天時效」
         if '三天時效' in sheet_names:
-            df_efficiency = pd.read_excel(xls, '三天時效')
-        elif '時效統計' in sheet_names:
-            df_efficiency = pd.read_excel(xls, '時效統計')
+            df_3days = pd.read_excel(xls, '三天時效')
 
-        # --- 4. 讀取「多元服務」資料 ---
+        # 2. 讀取「五天時效」
+        if '五天時效' in sheet_names:
+            df_5days = pd.read_excel(xls, '五天時效')
+
+        # 3. 讀取「結案」
+        if '結案' in sheet_names:
+            df_close = pd.read_excel(xls, '結案')
+
+        # 4. 讀取「多元總表」
         if '多元總表' in sheet_names:
             df_diversity = pd.read_excel(xls, '多元總表')
-        elif '多元數量' in sheet_names:
-            df_diversity = pd.read_excel(xls, '多元數量')
 
-        # --- 5. 計算「區域與個管」交叉表 (從總表) ---
+        # 5. 從「總表」自動算區域與個管交叉表
         if '總表' in sheet_names:
             df_raw = pd.read_excel(xls, '總表')
+            # 自動判定是否包含欄位「居住地」與「A個管」
             if {'居住地', 'A個管'}.issubset(df_raw.columns):
                 df_region = pd.crosstab(
                     df_raw['居住地'],
@@ -128,81 +150,65 @@ if uploaded_file is not None:
                     margins_name='總計',
                 ).reset_index()
 
-        st.success('✅ 檔案讀取成功！')
+        st.success('✅ 檔案讀取成功！資料預覽如下：')
 
-        # --- 6. 分頁預覽 (加入條件判斷) ---
-        tab1, tab2, tab3, tab4 = st.tabs(
-            ['派案與結案', '服務時效', '多元服務數量', '區域與個管']
+        # 分頁顯示畫面預覽
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(
+            [
+                '結案統計',
+                '三天時效',
+                '五天時效',
+                '多元總表',
+                '區域與個管(自動計算)',
+            ]
         )
 
         with tab1:
-            if not df_dispatch.empty:
-                st.dataframe(df_dispatch, use_container_width=True)
+            if df_close is not None:
+                st.dataframe(df_close, use_container_width=True)
             else:
-                st.info('尚無派案/結案資料')
+                st.info('未找到「結案」工作表')
 
         with tab2:
-            if not df_efficiency.empty:
-                st.dataframe(df_efficiency, use_container_width=True)
+            if df_3days is not None:
+                st.dataframe(df_3days, use_container_width=True)
             else:
-                st.info('尚無時效資料')
+                st.info('未找到「三天時效」工作表')
 
         with tab3:
-            if not df_diversity.empty:
-                st.dataframe(df_diversity, use_container_width=True)
+            if df_5days is not None:
+                st.dataframe(df_5days, use_container_width=True)
             else:
-                st.info('尚無多元服務資料')
+                st.info('未找到「五天時效」工作表')
 
         with tab4:
+            if df_diversity is not None:
+                st.dataframe(df_diversity, use_container_width=True)
+            else:
+                st.info('未找到「多元總表」工作表')
+
+        with tab5:
             if df_region is not None:
                 st.dataframe(df_region, use_container_width=True)
             else:
-                st.info('尚無區域與個管資料')
+                st.info('未找到「總表」或缺乏「居住地/A個管」欄位')
 
-        # --- 7. 下載 Word 按鈕 (僅傳入有資料的表格) ---
         st.markdown('---')
+
+        # 一鍵生成 Word 檔案
         word_bytes = build_word_report(
-            df_dispatch, df_efficiency, df_diversity, df_region
+            df_3days, df_5days, df_close, df_diversity, df_region
         )
 
         st.download_button(
-            label='📥 下載當月 Word 報告 (.docx)',
+            label='📥 下載完整 Word 報告 (.docx)',
             data=word_bytes,
-            file_name='長照A單位_每月統計報告.docx',
+            file_name='長照A單位_月報統計報告.docx',
             mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         )
 
     except Exception as e:
         st.error(f'資料處理時發生錯誤：{e}')
-        # 頁面預覽頁籤
-        tab1, tab2, tab3, tab4 = st.tabs(
-            ['派案與結案', '服務時效', '多元服務數量', '區域與個管']
-        )
-
-        with tab1:
-            st.dataframe(df_dispatch, use_container_width=True)
-        with tab2:
-            st.dataframe(df_efficiency, use_container_width=True)
-        with tab3:
-            st.dataframe(df_diversity, use_container_width=True)
-        with tab4:
-            st.dataframe(df_region, use_container_width=True)
-
-        # --- 一鍵生成並下載 Word 報告 ---
-        st.markdown('---')
-        word_bytes = build_word_report(
-            df_dispatch, df_efficiency, df_diversity, df_region
-        )
-
-        st.download_button(
-            label='📥 下載當月自動產製的 Word 報告 (.docx)',
-            data=word_bytes,
-            file_name='長照A單位_每月統計報告(自動產製).docx',
-            mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        )
-
-    except Exception as e:
-        st.error(f'資料處理時發生錯誤，請確認 Excel Sheet 名稱或格式：{e}')
 
 else:
-    st.info('👈 請先在上方上傳最新的 Excel 資料檔以開啟自動計算與匯出功能。')
+    st.info('👈 請在上方上傳 Excel 檔案以開始分析。')
