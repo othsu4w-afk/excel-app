@@ -95,16 +95,16 @@ if uploaded_file is not None:
         xls = pd.ExcelFile(uploaded_file)
 
         # 動態讀取資料
-        df_dispatch = pd.read_excel(
-            xls, '派案統計'
+        sheets_dict = pd.read_excel(
+            xls, sheet_name=['三天時效', '結案']
         )  # 包含月份、新進案量、結案數等
-        df_efficiency = pd.read_excel(
-            xls, '時效統計'
+        sheets_dict = pd.read_excel(
+            xls, sheet_name=['三天時效', '五天時效']
         )  # 包含 3天時效、5天時效、原因等
-        df_diversity = pd.read_excel(
-            xls, '多元數量'
+        sheets_dict = pd.read_excel(
+            xls, sheet_name=['多元總表']
         )  # 包含 0~5項多元服務人數
-        df_raw_cases = pd.read_excel(xls, '個案名冊')  # 包含個管師、區域
+        df_raw_cases = pd.read_excel(xls, '多元總表')  # 包含個管師、區域
 
         # --- 自動動態計算「區域與個管師樞紐表」 ---
         if {'鄉鎮區域', '負責個管'}.issubset(df_raw_cases.columns):
