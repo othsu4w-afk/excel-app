@@ -90,33 +90,90 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
     try:
-        # 讀取 Excel 內不同的工作表 (Sheet)
-        # 💡 您可依據您實際 Excel 的 Sheet 名稱做修改
         xls = pd.ExcelFile(uploaded_file)
+        sheet_names = xls.sheet_names  # 取得所有工作表名稱
 
-        # 動態讀取資料
-        sheets_dict = pd.read_excel(
-            xls, sheet_name=['三天時效', '結案']
-        )  # 包含月份、新進案量、結案數等
-        sheets_dict = pd.read_excel(
-            xls, sheet_name=['三天時效', '五天時效']
-        )  # 包含 3天時效、5天時效、原因等
-        sheets_dict = pd.read_excel(
-            xls, sheet_name=['多元總表']
-        )  # 包含 0~5項多元服務人數
-        df_raw_cases = pd.read_excel(xls, '多元總表')  # 包含個管師、區域
+        # --- 1. 預先宣告變數 (防止 NameError) ---
+        df_dispatch = pd.DataFrame()
+        df_efficiency = pd.DataFrame()
+        df_diversity = pd.DataFrame()
+        df_region = None
 
-        # --- 自動動態計算「區域與個管師樞紐表」 ---
-        if {'鄉鎮區域', '負責個管'}.issubset(df_raw_cases.columns):
-            df_region = pd.crosstab(
-                df_raw_cases['居住地'],
-                df_raw_cases['A個管'],
-                margins=True,
-                margins_name='總計',
-            ).reset_index()
+        # --- 2. 讀取「結案 / 派案」資料 ---
+        if '結案' in sheet_names:
+            df_dispatch = pd.read_excel(xls, '結案')
+        elif '派案統計' in sheet_names:
+            df_dispatch = pd.read_excel(xls, '派案統計')
 
-        st.success('✅ 檔案讀取成功！以下為自動計算結果預覽：')
+        # --- 3. 讀取「服務時效」資料 ---
+        if '三天時效' in sheet_names:
+            df_efficiency = pd.read_excel(xls, '三天時效')
+        elif '時效統計' in sheet_names:
+            df_efficiency = pd.read_excel(xls, '時效統計')
 
+        # --- 4. 讀取「多元服務」資料 ---
+        if '多元總表' in sheet_names:
+            df_diversity = pd.read_excel(xls, '多元總表')
+        elif '多元數量' in sheet_names:
+            df_diversity = pd.read_excel(xls, '多元數量')
+
+        # --- 5. 計算「區域與個管」交叉表 (從總表) ---
+        if '總表' in sheet_names:
+            df_raw = pd.read_excel(xls, '總表')
+            if {'居住地', 'A個管'}.issubset(df_raw.columns):
+                df_region = pd.crosstab(
+                    df_raw['居住地'],
+                    df_raw['A個管'],
+                    margins=True,
+                    margins_name='總計',
+                ).reset_index()
+
+        st.success('✅ 檔案讀取成功！')
+
+        # --- 6. 分頁預覽 (加入條件判斷) ---
+        tab1, tab2, tab3, tab4 = st.tabs(
+            ['派案與結案', '服務時效', '多元服務數量', '區域與個管']
+        )
+
+        with tab1:
+            if not df_dispatch.empty:
+                st.dataframe(df_dispatch, use_container_width=True)
+            else:
+                st.info('尚無派案/結案資料')
+
+        with tab2:
+            if not df_efficiency.empty:
+                st.dataframe(df_efficiency, use_container_width=True)
+            else:
+                st.info('尚無時效資料')
+
+        with tab3:
+            if not df_diversity.empty:
+                st.dataframe(df_diversity, use_container_width=True)
+            else:
+                st.info('尚無多元服務資料')
+
+        with tab4:
+            if df_region is not None:
+                st.dataframe(df_region, use_container_width=True)
+            else:
+                st.info('尚無區域與個管資料')
+
+        # --- 7. 下載 Word 按鈕 (僅傳入有資料的表格) ---
+        st.markdown('---')
+        word_bytes = build_word_report(
+            df_dispatch, df_efficiency, df_diversity, df_region
+        )
+
+        st.download_button(
+            label='📥 下載當月 Word 報告 (.docx)',
+            data=word_bytes,
+            file_name='長照A單位_每月統計報告.docx',
+            mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        )
+
+    except Exception as e:
+        st.error(f'資料處理時發生錯誤：{e}')
         # 頁面預覽頁籤
         tab1, tab2, tab3, tab4 = st.tabs(
             ['派案與結案', '服務時效', '多元服務數量', '區域與個管']
