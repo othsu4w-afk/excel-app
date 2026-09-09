@@ -109,14 +109,14 @@ if uploaded_file is not None:
         # --- 自動動態計算「區域與個管師樞紐表」 ---
         if {'鄉鎮區域', '負責個管'}.issubset(df_raw_cases.columns):
             df_region = pd.crosstab(
-                df_raw_cases['鄉鎮區域'],
-                df_raw_cases['負責個管'],
+                df_raw_cases['居住地'],
+                df_raw_cases['A個管'],
                 margins=True,
                 margins_name='總計',
             ).reset_index()
         else:
             df_region = pd.read_excel(
-                xls, '區域與個管'
+                xls, '分析'
             )  # 若 Excel 已算好則直接讀取
 
         st.success('✅ 檔案讀取成功！以下為自動計算結果預覽：')
