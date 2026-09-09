@@ -1,112 +1,69 @@
-import streamlit as st
+import io
+import docx
+from docx.shared import Pt, RGBColor
 import pandas as pd
-import plotly.express as px
+import streamlit as st
 
-# 設置頁面標題與寬度
-st.set_page_config(page_title="長照報表自動化統計系統", layout="wide")
 
-st.title("📊 長照服務個案統計與時效分析系統")
-st.write("自動讀取分頁數據，並針對 **服務區域** 與 **個管員** 生成交叉統計與圖表")
+def create_word_report(data_df):
+    doc = docx.Document()
 
-# 1. 檔案上傳區
-uploaded_file = st.file_uploader("請上傳 Excel 報表 (.xlsx)", type=["xlsx"])
+    # 設定標題
+    title = doc.add_heading('每月 A 派案及服務統計報告', level=1)
 
-if uploaded_file is not None:
-    # 讀取 Excel 的所有分頁
-    xls = pd.ExcelFile(uploaded_file)
-    sheet_names = xls.sheet_names
-    
-    st.success(f"成功讀取檔案！包含分頁：{', '.join(sheet_names)}")
-    
-    # 建立分頁頁籤
-    tab_list = st.tabs(sheet_names)
-    
-    for i, sheet_name in enumerate(sheet_names):
-        with tab_list[i]:
-            df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
-            
-            # 清理欄位名稱（去除換行符號與多餘空格）
-            df.columns = [str(col).replace('\n', '').strip() for col in df.columns]
-            
-            # 自動識別「個管員」欄位名稱
-            case_manager_col = None
-            if 'A個管' in df.columns:
-                case_manager_col = 'A個管'
-            elif 'Unnamed: 0' in df.columns:
-                case_manager_col = 'Unnamed: 0'
-                
-            # 自動識別「服務區域/居住地」欄位名稱
-            area_col = None
-            if '居住地(下拉)' in df.columns:
-                area_col = '居住地(下拉)'
-            elif '居住地' in df.columns:
-                area_col = '居住地'
-            
-            # 顯示資料預覽
-            st.subheader(f"📋 【{sheet_name}】資料預覽（共 {len(df)} 筆）")
-            st.dataframe(df.head(), use_container_width=True)
-            
-            st.divider()
-            
-            # 統計圖表區
-            st.subheader(f"📈 【{sheet_name}】統計分析")
-            
-            col1, col2 = st.columns(2)
-            
-            # 1. 服務區域統計圖表
-            with col1:
-                if area_col and area_col in df.columns:
-                    area_counts = df[area_col].dropna().value_counts().reset_index()
-                    area_counts.columns = ['服務區域', '個案數']
-                    
-                    st.write("### 🏠 各服務區域個案分布")
-                    fig_area = px.bar(
-                        area_counts, 
-                        x='服務區域', 
-                        y='個案數', 
-                        text='個案數',
-                        color='個案數',
-                        color_continuous_scale='Viridis',
-                        title=f"{sheet_name} - 各服務區域統計"
-                    )
-                    fig_area.update_traces(textposition='outside')
-                    st.plotly_chart(fig_area, use_container_width=True)
-                else:
-                    st.info("此分頁無『居住地』相關欄位")
+    # 加入說明內文
+    doc.add_paragraph('本報告由 Streamlit 系統自動生成，以下為最新月份之服務品質與個案統計數據：')
 
-            # 2. 個管員統計圖表
-            with col2:
-                if case_manager_col and case_manager_col in df.columns:
-                    cm_counts = df[case_manager_col].dropna().value_counts().reset_index()
-                    cm_counts.columns = ['個管員', '個案數']
-                    
-                    st.write("### 👤 各個管員案件量統計")
-                    fig_cm = px.bar(
-                        cm_counts, 
-                        x='個管員', 
-                        y='個案數', 
-                        text='個案數',
-                        color='個案數',
-                        color_continuous_scale='Blues',
-                        title=f"{sheet_name} - 各個管員案件量"
-                    )
-                    fig_cm.update_traces(textposition='outside')
-                    st.plotly_chart(fig_cm, use_container_width=True)
-                else:
-                    st.info("此分頁無『個管員』相關欄位")
-            
-            # 3. 交叉分析（個管員 x 服務區域）
-            if area_col and case_manager_col and (area_col in df.columns) and (case_manager_col in df.columns):
-                st.write("### 🔀 個管員與服務區域 交叉分析圖")
-                cross_df = df.groupby([case_manager_col, area_col]).size().reset_index(name='個案數')
-                cross_df.columns = ['個管員', '服務區域', '個案數']
-                
-                fig_cross = px.bar(
-                    cross_df, 
-                    x='個管員', 
-                    y='個案數', 
-                    color='服務區域', 
-                    barmode='stack',
-                    title=f"{sheet_name} - 個管員在各區域的案件分布"
-                )
-                st.plotly_chart(fig_cross, use_container_width=True)
+    # 加入表格 (例如：個案多元服務量統計)
+    doc.add_heading('服務品質追蹤情形(個案多元服務量)', level=2)
+
+    table = doc.add_table(rows=1, cols=len(data_df.columns))
+    table.style = 'Table Grid'
+
+    # 填入表頭
+    hdr_cells = table.rows[0].cells
+    for i, col_name in enumerate(data_df.columns):
+        hdr_cells[i].text = str(col_name)
+
+    # 填入表格資料
+    for index, row in data_df.iterrows():
+        row_cells = table.add_row().cells
+        for i, val in enumerate(row):
+            row_cells[i].text = str(val)
+
+    # 儲存至記憶體緩衝區 (BytesIO)
+    bio = io.BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    return bio
+
+
+# --- Streamlit 介面範例 ---
+st.title('長照 A 單位報告生成器')
+
+# 假設這是您在 Streamlit 處理好的 DataFrame
+sample_data = {
+    '多元服務量': [
+        '0項服務',
+        '1項服務',
+        '2項服務',
+        '3項服務',
+        '4項服務',
+        '5項(含)以上服務',
+    ],
+    '7月人數': [7, 507, 793, 580, 239, 88],
+    '占比': ['0.32%', '22.90%', '35.82%', '26.20%', '10.79%', '3.97%'],
+}
+df = pd.DataFrame(sample_data)
+
+st.write('### 預覽資料表')
+st.dataframe(df)
+
+# 下載按鈕
+docx_bytes = create_word_report(df)
+st.download_button(
+    label='📥 下載 Word 報告檔 (.docx)',
+    data=docx_bytes,
+    file_name='每月A派案分析報告.docx',
+    mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+)
