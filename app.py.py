@@ -130,7 +130,7 @@ def calculate_overlap_stats(df_3days_raw, df_5days_raw):
 
 
 # ==========================================
-# 3. 多元總表進階統計邏輯
+# 3. 多元總表進階統計邏輯 (已修正 applymap 相容性問題)
 # ==========================================
 def analyze_diversity_sheet(df_diversity):
     if df_diversity is None or df_diversity.empty:
@@ -181,13 +181,14 @@ def analyze_diversity_sheet(df_diversity):
             })
         nae_top3_df = pd.DataFrame(nae_list)
 
+        # 兼顧舊版 applymap 與新版 map 相容性
+        map_func = getattr(df_diversity[nae_cols], 'map', getattr(df_diversity[nae_cols], 'applymap', None))
+        
         service_counts_per_case = (
-            df_diversity[nae_cols]
-            .astype(str)
-            .applymap(
+            map_func(
                 lambda x: (
                     1
-                    if x.strip() and x.strip() not in ['nan', 'None']
+                    if str(x).strip() and str(x).strip() not in ['nan', 'None']
                     else 0
                 )
             )
@@ -340,7 +341,7 @@ if uploaded_file is not None:
         df_nae_top3 = None
         df_region = None
 
-        # 1. 結案原因統計 (針對新舊版 Pandas 計算相容修正)
+        # 1. 結案原因統計
         if '結案' in sheet_names:
             df_close = pd.read_excel(xls, '結案')
             reason_cols = [c for c in df_close.columns if '原因' in str(c) or '類別' in str(c) or '狀態' in str(c)]
@@ -360,7 +361,6 @@ if uploaded_file is not None:
         # 2. 三天時效
         if '三天時效' in sheet_names:
             df_3days_raw = pd.read_excel(xls, '三天時效')
-            # 安全轉換數字欄位
             num_cols = []
             for c in df_3days_raw.columns:
                 converted = pd.to_numeric(df_3days_raw[c], errors='coerce')
@@ -388,14 +388,12 @@ if uploaded_file is not None:
             ref_col = next((c for c in df_5days_raw.columns if '照會' in str(c) or '派案天' in str(c)), None)
             note_col = next((c for c in df_5days_raw.columns if '備註' in str(c) or '原因' in str(c)), None)
 
-            # 強制轉換天數為數值
             if days_col:
                 df_5days_raw[days_col] = pd.to_numeric(df_5days_raw[days_col], errors='coerce')
             if ref_col:
                 df_5days_raw[ref_col] = pd.to_numeric(df_5days_raw[ref_col], errors='coerce')
 
             b_items = ['居家照顧', '日間照顧', '家庭托顧']
-            c_items = ['專業服務']
 
             if item_col and days_col:
                 df_b = df_5days_raw[df_5days_raw[item_col].astype(str).isin(b_items)]
