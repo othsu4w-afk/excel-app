@@ -1,14 +1,13 @@
 import io
 import docx
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Pt
 import pandas as pd
 import streamlit as st
 
 
-# 設定表格邊框與美化輔助函式
+# --- 1. Word 表格繪製輔助函式 ---
 def set_cell_background(cell, fill_hex):
     tcPr = cell._element.get_or_add_tcPr()
     shd = OxmlElement('w:shd')
@@ -18,11 +17,10 @@ def set_cell_background(cell, fill_hex):
     tcPr.append(shd)
 
 
-def build_table(doc, df_data, title=''):
+def add_df_to_word(doc, df_data, title=''):
     if title:
         doc.add_heading(title, level=2)
 
-    # 建立表格
     table = doc.add_table(rows=1, cols=len(df_data.columns))
     table.style = 'Table Grid'
 
@@ -30,8 +28,7 @@ def build_table(doc, df_data, title=''):
     hdr_cells = table.rows[0].cells
     for i, col_name in enumerate(df_data.columns):
         hdr_cells[i].text = str(col_name)
-        # 設定表頭背景為淺灰色、文字加粗
-        set_cell_background(hdr_cells[i], 'EFEFEF')
+        set_cell_background(hdr_cells[i], 'EFEFEF')  # 淺灰背景
         for p in hdr_cells[i].paragraphs:
             for run in p.runs:
                 run.font.bold = True
@@ -46,135 +43,113 @@ def build_table(doc, df_data, title=''):
                 for run in p.runs:
                     run.font.size = Pt(9.5)
 
-    doc.add_paragraph()  # 空列隔開
+    doc.add_paragraph()  # 加上空行
 
 
-def generate_word_report():
+# --- 2. 動態生成 Word 報告邏輯 ---
+def build_word_report(df_dispatch, df_efficiency, df_diversity, df_region):
     doc = docx.Document()
 
-    # 主標題
-    h1 = doc.add_heading('屏東市 A 單位每月會議與服務統計報告', level=1)
-    doc.add_paragraph('本報告由 Streamlit 系統自動匯出，彙整當月 A 派案、服務時效、多元服務及個管分工數據。')
+    doc.add_heading('長照 A 單位每月營運與服務品質統計報告', level=1)
+    doc.add_paragraph('本報告由 Streamlit 系統自動讀取當月資料並演算生成。')
 
-    # ----------------------------------------------------
-    # 1. 派案與結案數分析
-    # ----------------------------------------------------
-    df_dispatch = pd.DataFrame({
-        '月份': ['7月', '8月', '9月', '10月', '11月', '12月'],
-        '新進案量': [16, '', '', '', '', ''],
-        '結案數': [75, '', '', '', '', ''],
-    })
-    build_table(doc, df_dispatch, '一、 派案與結案統計')
+    # 加入四個主要動態表格
+    add_df_to_word(doc, df_dispatch, '一、 每月 A 派案與結案分析')
+    add_df_to_word(
+        doc,
+        df_efficiency,
+        '二、 服務時效追蹤（含 3 天及 5 天時效）',
+    )
+    add_df_to_word(doc, df_diversity, '三、 多元服務數量追蹤')
+    add_df_to_word(doc, df_region, '四、 服務區域與個管師案量統計')
 
-    # ----------------------------------------------------
-    # 2. 服務時效分析（包含 3 天與 5 天時效）
-    # ----------------------------------------------------
-    df_efficiency = pd.DataFrame({
-        '月份': ['7月', '8月', '9月', '10月', '11月', '12月'],
-        '訪案及計畫擬定平均天數 (≦3天)': [2.12, '', '', '', '', ''],
-        '照專簽審後至照會單位平均天數 (≦2天)': [1.37, '', '', '', '', ''],
-        '照會後第1次服務輸送到達平均天數 (≦5天)': [5.34, '', '', '', '', ''],
-        '未符合時效內原因說明': ['配合案家時間(9)\n住院(2)', '', '', '', '', ''],
-    })
-    build_table(doc, df_efficiency, '二、 服務時效追蹤（3天及5天時效）')
-
-    # ----------------------------------------------------
-    # 3. 多元服務數量追蹤
-    # ----------------------------------------------------
-    df_diversity = pd.DataFrame({
-        '多元服務量': [
-            '0項服務',
-            '1項服務',
-            '2項服務',
-            '3項服務',
-            '4項服務',
-            '5項(含)以上服務',
-            '總計(人數)',
-            '占比(%)',
-        ],
-        '7月人數/數據': [
-            '7',
-            '507',
-            '793',
-            '580',
-            '239',
-            '88',
-            '2214',
-            '76.78%',
-        ],
-        '8月': ['', '', '', '', '', '', '', ''],
-        '9月': ['', '', '', '', '', '', '', ''],
-        '10月': ['', '', '', '', '', '', '', ''],
-        '11月': ['', '', '', '', '', '', '', ''],
-        '12月': ['', '', '', '', '', '', '', ''],
-    })
-    build_table(doc, df_diversity, '三、 多元服務數量統計')
-
-    # ----------------------------------------------------
-    # 4. 服務區域與個管師案量交叉分析表
-    # ----------------------------------------------------
-    df_region = pd.DataFrame({
-        '區域 / 個管': [
-            '屏東市',
-            '萬丹鄉',
-            '長治鄉',
-            '麟洛鄉',
-            '鹽埔鄉',
-            '高樹鄉',
-            '九如鄉',
-            '里港鄉',
-            '內埔鄉',
-            '潮州鎮',
-            '萬巒鄉',
-            '竹田鄉',
-            '總計',
-        ],
-        '金菊': [37, 0, 90, 0, 0, 0, 0, 0, 0, 0, 0, 0, 127],
-        '怡然': [66, 35, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 119],
-        '依凡': [119, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 119],
-        '文琪': [116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 116],
-        '心慧': [116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 116],
-        '謹誼': [115, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 115],
-        '秀珍': [37, 0, 0, 78, 0, 0, 0, 0, 0, 0, 0, 0, 115],
-        '讚美': [113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 113],
-        '區域總計': [
-            738,
-            249,
-            148,
-            78,
-            158,
-            162,
-            89,
-            63,
-            218,
-            166,
-            74,
-            71,
-            2214,
-        ],
-    })
-    build_table(doc, df_region, '四、 服務區域與個管個案統計')
-
-    # 將生成的 Word 檔寫入記憶體
     bio = io.BytesIO()
     doc.save(bio)
     bio.seek(0)
     return bio
 
 
-# --- Streamlit 畫面配置 ---
-st.title('長照 A 單位報表生成與匯出系統')
-st.markdown(
-    '點擊下方按鈕，即可將包含 **結案數、3天與5天時效、多元服務數量、服務區域與個管表格** 的完整數據自動生成為 Word 報告檔！'
+# --- 3. Streamlit 介面與資料自動運算 ---
+st.set_page_config(
+    page_title='長照 A 單位自動化報表系統', layout='wide'
+)
+st.title('📊 長照 A 單位每月報表自動統計與 Word 匯出系統')
+
+st.markdown("""
+請上傳您毎個月的**原始資料 Excel 檔**，系統會自動計算：
+1. **結案數與派案量**
+2. **3 天與 5 天服務時效平均**
+3. **多元服務項目數量**
+4. **服務區域與個管師統計表**
+""")
+
+# 檔案上傳器
+uploaded_file = st.file_uploader(
+    '請選擇 monthly_data.xlsx 檔案上傳', type=['xlsx', 'xls']
 )
 
-# 生成 Word 檔案
-word_file = generate_word_report()
+if uploaded_file is not None:
+    try:
+        # 讀取 Excel 內不同的工作表 (Sheet)
+        # 💡 您可依據您實際 Excel 的 Sheet 名稱做修改
+        xls = pd.ExcelFile(uploaded_file)
 
-# 下載按鈕
-st.download_button(
-    label='📥 下載完整 Word 報告 (.docx)',
-    data=word_file,
-    file_name='屏東市A單位會議紀錄_統計分析報告.docx',
-    mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-)
+        # 動態讀取資料
+        df_dispatch = pd.read_excel(
+            xls, '派案統計'
+        )  # 包含月份、新進案量、結案數等
+        df_efficiency = pd.read_excel(
+            xls, '時效統計'
+        )  # 包含 3天時效、5天時效、原因等
+        df_diversity = pd.read_excel(
+            xls, '多元數量'
+        )  # 包含 0~5項多元服務人數
+        df_raw_cases = pd.read_excel(xls, '個案名冊')  # 包含個管師、區域
+
+        # --- 自動動態計算「區域與個管師樞紐表」 ---
+        if {'鄉鎮區域', '負責個管'}.issubset(df_raw_cases.columns):
+            df_region = pd.crosstab(
+                df_raw_cases['鄉鎮區域'],
+                df_raw_cases['負責個管'],
+                margins=True,
+                margins_name='總計',
+            ).reset_index()
+        else:
+            df_region = pd.read_excel(
+                xls, '區域與個管'
+            )  # 若 Excel 已算好則直接讀取
+
+        st.success('✅ 檔案讀取成功！以下為自動計算結果預覽：')
+
+        # 頁面預覽頁籤
+        tab1, tab2, tab3, tab4 = st.tabs(
+            ['派案與結案', '服務時效', '多元服務數量', '區域與個管']
+        )
+
+        with tab1:
+            st.dataframe(df_dispatch, use_container_width=True)
+        with tab2:
+            st.dataframe(df_efficiency, use_container_width=True)
+        with tab3:
+            st.dataframe(df_diversity, use_container_width=True)
+        with tab4:
+            st.dataframe(df_region, use_container_width=True)
+
+        # --- 一鍵生成並下載 Word 報告 ---
+        st.markdown('---')
+        word_bytes = build_word_report(
+            df_dispatch, df_efficiency, df_diversity, df_region
+        )
+
+        st.download_button(
+            label='📥 下載當月自動產製的 Word 報告 (.docx)',
+            data=word_bytes,
+            file_name='長照A單位_每月統計報告(自動產製).docx',
+            mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        )
+
+    except Exception as e:
+        st.error(f'資料處理時發生錯誤，請確認 Excel Sheet 名稱或格式：{e}')
+
+else:
+    st.info('👈 請先在上方上傳最新的 Excel 資料檔以開啟自動計算與匯出功能。')
