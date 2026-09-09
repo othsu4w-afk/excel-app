@@ -114,10 +114,6 @@ if uploaded_file is not None:
                 margins=True,
                 margins_name='總計',
             ).reset_index()
-        else:
-            df_region = pd.read_excel(
-                xls, '區域與個管'
-            )  # 若 Excel 已算好則直接讀取
 
         st.success('✅ 檔案讀取成功！以下為自動計算結果預覽：')
 
